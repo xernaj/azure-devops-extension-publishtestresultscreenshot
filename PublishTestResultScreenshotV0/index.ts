@@ -4,6 +4,8 @@
 // process.env.SYSTEM_TEAMPROJECT = ""
 // process.env.INPUT_ORGANIZATION = ""
 // process.env.INPUT_SCREENSHOTFOLDER = ""
+// process.env.INPUT_OSTYPE = "android|ios"
+// process.env.INPUT_SCREENSHOTROTATEANGLE = "0|90"
 // process.env.BUILD_BUILDID = ""
 // **********************************************************************************
 
@@ -11,10 +13,16 @@ import * as tl from "azure-pipelines-task-lib/task"
 import * as azdev from "azure-devops-node-api";
 import * as ta from "azure-devops-node-api/TestApi";
 import fs from "fs";
+import glob from "glob";
+import Jimp from "jimp";
 import { TestOutcome, ShallowTestCaseResult, TestAttachmentRequestModel, TestAttachmentReference } from 'azure-devops-node-api/interfaces/TestInterfaces';
 
 const DEFAULT_SCREENSHOT_FOLDER = "./app/build/reports/androidTests/connected/screenshots/failures/";
 const PARAM_SCREENSHOT_FOLDER = "screenshotFolder";
+const DEFAULT_OS_TYPE = "android";
+const PARAM_OS_TYPE = "osType";
+const DEFAULT_SCREENSHOT_ROTATE = "0";
+const PARAM_SCREENSHOT_ROTATE = "screenshotRotateAngle";
 const PARAM_ORGANIZATION = "organization";
 
 let project = tl.getVariable("System.TeamProject");
@@ -27,7 +35,7 @@ async function run() {
         let connection = new azdev.WebApi("https://dev.azure.com/" + getOrganization(), authHandler);
         testApi = await connection.getTestApi();
         await testApi.getTestResultsByBuild(project, +tl.getVariable("Build.BuildId"), undefined, [TestOutcome.Failed])
-            .then(async failedTests =>  uploadScreenshots(failedTests))
+            .then(async failedTests => uploadScreenshots(failedTests))
             .catch(err => tl.setResult(tl.TaskResult.Failed, err.message))
     }
     catch (err) {
@@ -41,27 +49,71 @@ async function uploadScreenshots(failedTests: ShallowTestCaseResult[]) {
     let apiCalls: Promise<any>[] = [];
     let missingScreenshots: Error[] = [];
     let totalFailures = failedTests.length
-
+    
     if(totalFailures <= 0) {
         tl.setResult(tl.TaskResult.Skipped, "No test failures found.")
         return
     }
     console.log(totalFailures + " tests failed. Will proceed with screenshot upload.")
-    failedTests.forEach(async (failedTest: ShallowTestCaseResult, index) => {
+    for (const failedTest of failedTests) {
+        // can't use .forEach with async here as that will fire off the calls before Promise.all(apiCalls) can count all the results
+        // eg. it will result in weird results like "Task completed. Published 0/1 screenshots" even though 1 screenshot was published
+        // see https://stackoverflow.com/questions/37576685/using-async-await-with-a-foreach-loop
         let testName = failedTest.automatedTestName;
         let className = failedTest.automatedTestStorage;
-        let imgPath = getScreenshotFolder() + className + "/" + testName + ".png";//TODO make it configurable in upcoming version
+        let testTitle = failedTest.testCaseTitle;
+
+        tl.debug("testName: "+testName+"|className: "+className+"|test case title: "+testTitle);
+
+        let imageExtension = getOsType() == "ios" ? ".jpg" : ".png";
+
+        var imgPath;
+        if (getOsType() == "ios") {
+            // classname for xcode is appName.class eg. MyApp.UITests
+            // xcparse output is class/testname() eg. UITests/testOne()/*.jpg
+            var xcodeClass;
+            let splitClass = className?.split(".");
+            if (splitClass?.length == 2) {
+                xcodeClass = splitClass[1];
+            }
+
+            let dirSearch = getScreenshotFolder() + xcodeClass + "/" + testName + "*/" + "*.jpg";
+
+            // supports only one screenshot even if folder has many
+            var files = glob.sync(dirSearch);
+            if (files != undefined && files.length > 0) {
+                console.log("found files "+files.length)
+                console.log("choosing first: "+files[0])
+                imgPath = files[0]
+            } else {
+                imgPath = ""
+            }
+        } else {
+            imgPath = getScreenshotFolder() + className + "/" + testName + imageExtension;//TODO make it configurable in upcoming version
+        }
+
         tl.debug("Searching for image at path: " + imgPath);
         if (fs.existsSync(imgPath)) {
-            let imageAsBase64 = fs.readFileSync(imgPath, 'base64');
-            let attachment: TestAttachmentRequestModel = {fileName: testName + ".png", stream: imageAsBase64};
+            var imageAsBase64 = ""
+            
+            const rotateAngle = getScreenShotRotate()
+            const image = await Jimp.read(imgPath);
+            const base64String = await image.rotate(rotateAngle).getBase64Async(image.getMIME());
+            if (base64String != undefined) {
+                // Jimp creates base 64 with media type eg. "data:image/jpeg;base64,/9j/", we'll need to split the comma or there'll be an error from rest client "Error: Unable to obtain Stream"
+                imageAsBase64 = base64String.split(',').pop() || "";
+            } else {
+                tl.debug("Image could not be loaded at path: " + imgPath);
+            }
+
+            let attachment: TestAttachmentRequestModel = {fileName: testName + imageExtension, stream: imageAsBase64};
             
             apiCalls.push(testApi.createTestResultAttachment(attachment, project, failedTest.runId!, failedTest.id!));
         } else {
             tl.debug("Failure - No screenshot found for " + className + "/" + testName);
             missingScreenshots.push(Error("No screenshot found for " + className + "/" + testName));
         }
-    });
+    }
     Promise.all(apiCalls).then(function(attachmentResults) {
         let attachmentFailedCount = attachmentResults.filter(attachmentResult => attachmentResult == null).length
         let hasMissingScreenshot = missingScreenshots.length > 0
@@ -93,6 +145,34 @@ function getScreenshotFolder(): string {
         return DEFAULT_SCREENSHOT_FOLDER
     } else {
         return screenshotFolder += screenshotFolder.endsWith("/") ? "" : "/"
+    }
+}
+
+/**
+ * Get the input parameter "osType"
+ * 
+ * @returns the value from the input param or DEFAULT_OS_TYPE
+ */
+function getOsType(): string {
+    let osType = tl.getInput(PARAM_OS_TYPE)
+    if (isNullEmptyOrUndefined(osType)) {
+        return DEFAULT_OS_TYPE
+    } else {
+        return osType
+    }
+}
+
+/**
+ * Get the input parameter "screenshotRotate"
+ * 
+ * @returns the value from the input param or DEFAULT_SCREENSHOT_ROTATE
+ */
+function getScreenShotRotate(): number {
+    let screenShotRotate = tl.getInput(PARAM_SCREENSHOT_ROTATE)
+    if (isNullEmptyOrUndefined(screenShotRotate)) {
+        return parseInt(DEFAULT_SCREENSHOT_ROTATE) || 0
+    } else {
+        return parseInt(screenShotRotate) || 0
     }
 }
 

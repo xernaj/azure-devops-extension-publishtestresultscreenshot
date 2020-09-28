@@ -9,7 +9,7 @@
     "version": {
         "Major": 0,
         "Minor": 1,
-        "Patch": 0
+        "Patch": 2
     },
     "instanceNameFormat": "Publish screenshot",
     "inputs": [
@@ -28,10 +28,26 @@
             "defaultValue": "./app/build/reports/androidTests/connected/screenshots/failures/",
             "required": false,
             "helpMarkDown": "The folder where the task searches for screenshots"
+        },
+        {
+            "name": "osType",
+            "type": "string",
+            "label": "OS type",
+            "defaultValue": "android",
+            "required": false,
+            "helpMarkDown": "The os type for screenshots either android or ios"
+        },
+        {
+            "name": "screenshotRotateAngle",
+            "type": "string",
+            "label": "Rotate screenshot angle",
+            "defaultValue": "0",
+            "required": false,
+            "helpMarkDown": "Rotate screenshots by angle, eg. 0 for no rotation, 90 for right, etc."
         }
     ],
     "execution": {
-        "Node": {
+        "Node10": {
             "target": "index.js"
         }
     }
