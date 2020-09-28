@@ -25,6 +25,9 @@ Required
 
 Optional
 * `screenshotFolder`: you can change where the task looks for screenshot, defaults to "./app/build/reports/androidTests/connected/screenshots/failures/"
+* `osType`: allow for Xcode 11+ extracted screenshots with value "ios". Defaults to "android"
+* `rotationAngle`: screenshot can be rotated eg. 90, 180, 270. Defaults to "0"
+
 
 #### Using classic editor
 <img src="images/task-config-preview.png" width="600" />
@@ -36,7 +39,17 @@ Optional
   inputs:
     organization: {yourOrganizationName}
     screenshotFolder: {yourCustomPath}
+    osType: {osType}
+    screenshotRotateAngle: {rotationAngle}
 ```
+
+## Xcode / iOS
+This task can be used to upload screenshots from an Xcode pipeline task with the following pipeline changes:
+- Screenshot task must be in separate pipeline job due to test results not being available if in the same job as the Xcode build task. Xcode task has a built-in post-task that will run at the end of a job even if there is a Screenshot task that you'd think would run beforehand.
+- .xcresult published to build artifacts at end of Xcode build job
+- .xcresult retrieved from build artifacts for Screenshot task
+- xcparse (https://github.com/ChargePoint/xcparse) script or task to extract failure screenshots from .xcresult eg. 'xcparse screenshots --activity-type com.apple.dt.xctest.activity-type.testAssertionFailure --test sample.xcresult ./screenshots'. This should extract screenshots in the following format "UITests/testOne()/Screenshot_{uuid}.jpg".
+
 ## Specifications
 This task uses [azure-devops-node-api](https://github.com/microsoft/azure-devops-node-api) which, under the hood, uses the [Azure DevOps REST Api](https://docs.microsoft.com/en-us/rest/api/azure/devops/).
 
@@ -80,6 +93,8 @@ I used the latest version but just make sure that all commands return a version 
 // process.env.SYSTEM_TEAMPROJECT = ""
 // process.env.INPUT_ORGANIZATION = ""
 // process.env.INPUT_SCREENSHOTFOLDER = ""
+// process.env.INPUT_OSTYPE = "android|ios"
+// process.env.INPUT_SCREENSHOTROTATEANGLE = "0|90"
 // process.env.BUILD_BUILDID = ""
 // **********************************************************************************
 ```
