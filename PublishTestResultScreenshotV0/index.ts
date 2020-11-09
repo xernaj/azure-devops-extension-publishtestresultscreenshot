@@ -69,12 +69,14 @@ async function uploadScreenshots(failedTests: ShallowTestCaseResult[]) {
 
         var imgPath;
         if (getOsType() == "ios") {
-            // classname for xcode is appName.class eg. MyApp.UITests
+            // classname for xcode is sometimes "appName.class eg. MyApp.UITests
             // xcparse output is class/testname() eg. UITests/testOne()/*.jpg
             var xcodeClass;
             let splitClass = className?.split(".");
-            if (splitClass?.length == 2) {
+            if (splitClass?.length == 2) { // handle directory "{appName}.{class}"
                 xcodeClass = splitClass[1];
+            } else { // handle directory "{class}"
+                xcodeClass = className
             }
 
             let dirSearch = getScreenshotFolder() + xcodeClass + "/" + testName + "*/" + "*.jpg";
