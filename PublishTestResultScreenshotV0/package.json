@@ -20,6 +20,6 @@
   },
   "scripts": {
     "start": "node index.js",
-    "build": "rm \"./node_modules/@jimp/plugin-print/fonts/open-sans/Apache License.txt\"; rm \".0/node_modules/jimp/fonts/open-sans/Apache License.txt\"; cd ..; tfx extension create --manifest-globs vss-extension.json"
+    "build": "tsc; rm \"./node_modules/@jimp/plugin-print/fonts/open-sans/Apache License.txt\"; rm \"./node_modules/jimp/fonts/open-sans/Apache License.txt\"; cd ..; tfx extension create --manifest-globs vss-extension.json"
   }
 }
